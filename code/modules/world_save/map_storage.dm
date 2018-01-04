@@ -1,6 +1,35 @@
+var/global/list/found_vars = list()
+var/global/list/all_loaded = list()
+var/global/list/saved = list()
+var/global/list/areas_to_save = list()
+var/global/list/zones_to_save = list()
+
+/datum/area_holder
+	var/area_type = "/area"
+	var/name
+	var/list/turfs = list()
+	map_storage_saved_vars = "area_type;name;turfs"
+
+/obj/item/map_storage_debugger
+	name = "DEBUG ITEM"
+	desc = "DEBUG ITEM"
+	icon = 'icons/obj/device.dmi'
+	icon_state = "eftpos"
+	var/list/spawned = list()
+
+/obj/item/map_storage_debugger/attack_self(mob/user)
+	var/type_path = input(user, "Enter the typepath you want spawned", "debugger","") as text|null
+	var/datum/D = new type_path()
+	if(D)
+		spawned |= D
+	else
+		to_chat(user, "No datum of type [type_path]")
 /datum
 	var/should_save = 1
 	var/map_storage_saved_vars = ""
+
+/atom/movable/lighting_overlay
+	should_save = 0
 
 /turf
 	map_storage_saved_vars = "density;icon_state;name;pixel_x;pixel_y;contents;dir"
@@ -9,243 +38,234 @@
 	map_storage_saved_vars = "density;icon_state;name;pixel_x;pixel_y;contents;dir"
 
 /area
-	map_storage_saved_vars = "name;power_equip;power_light;power_environ;always_unpowered;uid;global_uid"
+	map_storage_saved_vars = ""
+/datum/proc/should_save(var/datum/saver)
+	return should_save
 
-/client/verb/SaveWorld()
-	Save_World()
-
-/client/verb/LoadWorld()
-	Load_World()
 /datum/proc/after_load()
+	return
+/area/after_load()
+	power_change()
+/datum/proc/before_load()
 	return
 
 /turf/after_load()
 	..()
+	update_icon()
 	lighting_build_overlay()
 
 /atom/movable/lighting_overlay/after_load()
 	loc = null
 	qdel(src)
+/mob/living/carbon/human/after_load()
+	..()
+	regenerate_icons()
+	redraw_inv()
+
+/datum/proc/StandardWrite(var/savefile/f)
+	var/list/saving
+	if(found_vars.Find("[type]"))
+		saving = found_vars["[type]"]
+	else
+		saving = get_saved_vars()
+		found_vars["[type]"] = saving
+
+	for(var/ind in 1 to saving.len)
+		var/variable = saving[ind]
+		if(!hasvar(src, variable))
+			continue
+		if(vars[variable] == initial(vars[variable]))
+			continue
+		var/list/return_this = list()
+		if(istype(vars[variable], /datum))
+			var/datum/D = vars[variable]
+			if(!D.should_save(src))
+				continue
+		if(istype(vars[variable], /list))
+			var/list/D = vars[variable]
+			for(var/datum/dat in D)
+				if(!dat.should_save(src))
+					D -= dat
+					return_this += dat
+		f["[variable]"] << vars[variable]
+		if(return_this.len)
+			var/list/D = vars[variable]
+			D += return_this
 
 /datum/Write(savefile/f)
-	var/list/saving
-	if(found_vars.Find("[type]"))
-		saving = found_vars["[type]"]
-	else
-		saving = get_saved_vars()
-		found_vars["[type]"] = saving
-	for(var/ind in 1 to saving.len)
-		var/variable = saving[ind]
-		if((variable != "pixel_x" && variable != "pixel_y") && (vars[variable] == initial(vars[variable])))
-			continue
-		f["[variable]"] << vars[variable]
-	return
+	StandardWrite(f)
 
 /atom/Write(savefile/f)
-	var/list/saving
-	if(found_vars.Find("[type]"))
-		saving = found_vars["[type]"]
-	else
-		saving = get_saved_vars()
-		found_vars["[type]"] = saving
-	for(var/ind in 1 to saving.len)
-		var/variable = saving[ind]
-		if(vars[variable] == initial(vars[variable]))
-			continue
-		f["[variable]"] << vars[variable]
-	return
+	StandardWrite(f)
 
 /atom/movable/Write(savefile/f)
-	if(!should_save)
-		return 0
-	var/list/saving
-	if(found_vars.Find("[type]"))
-		saving = found_vars["[type]"]
-	else
-		saving = get_saved_vars()
-		found_vars["[type]"] = saving
-	for(var/ind in 1 to saving.len)
-		var/variable = saving[ind]
-		if(vars[variable] == initial(vars[variable]))
-			continue
-		f["[variable]"] << vars[variable]
-	return
+	StandardWrite(f)
 
 /obj/Write(savefile/f)
-	if(!should_save)
-		return 0
-	var/list/saving
-	if(found_vars.Find("[type]"))
-		saving = found_vars["[type]"]
-	else
-		saving = get_saved_vars()
-		found_vars["[type]"] = saving
-	for(var/ind in 1 to saving.len)
-		var/variable = saving[ind]
-		if(vars[variable] == initial(vars[variable]))
-			continue
-		f["[variable]"] << vars[variable]
-	return
+	StandardWrite(f)
 
 /turf/Write(savefile/f)
-	if(!should_save)
-		return 0
-	var/list/saving
-	if(found_vars.Find("[type]"))
-		saving = found_vars["[type]"]
-	else
-		saving = get_saved_vars()
-		found_vars["[type]"] = saving
-	for(var/ind in 1 to saving.len)
-		var/variable = saving[ind]
-		if(vars[variable] == initial(vars[variable]))
-			continue
-		f["[variable]"] << vars[variable]
-	f["area"] << src.loc
-	return
+	areas_to_save |= loc
+	StandardWrite(f)
+/turf/simulated/Write(savefile/f)
+	if(zone)
+		zones_to_save |= zone
+	areas_to_save |= loc
+	StandardWrite(f)
 
 /mob/Write(savefile/f)
-	if(!should_save)
-		return 0
-	var/list/saving
-	if(found_vars.Find("[type]"))
-		saving = found_vars["[type]"]
-	else
-		saving = get_saved_vars()
-		found_vars["[type]"] = saving
-	for(var/ind in 1 to saving.len)
-		var/variable = saving[ind]
-		if(vars[variable] == initial(vars[variable]))
-			continue
-		f["[variable]"] << vars[variable]
-	return
+	if(StandardWrite(f))
+		return
 
-/area/Write(savefile/f)
-	if(!should_save)
-		return 0
-	var/list/saving
+/area/proc/get_turf_coords()
+	var/list/coord_list = list()
+	var/ind = 0
+	for(var/turf/T in contents)
+		ind++
+		coord_list += "[ind]"
+		coord_list[ind] = list(T.x, T.y, T.z)
+	return coord_list
+/zone/proc/get_turf_coords()
+	var/list/coord_list = list()
+	var/ind = 0
+	for(var/turf/T in contents)
+		ind++
+		coord_list += "[ind]"
+		coord_list[ind] = list(T.x, T.y, T.z)
+	return coord_list
+
+/datum/proc/StandardRead(var/savefile/f)
+	before_load()
+	var/list/loading
+	if(all_loaded)
+		all_loaded |= src
+
 	if(found_vars.Find("[type]"))
-		saving = found_vars["[type]"]
+		loading = found_vars["[type]"]
 	else
-		saving = get_saved_vars()
-		found_vars["[type]"] = saving
-	for(var/ind in 1 to saving.len)
-		var/variable = saving[ind]
-		if(vars[variable] == initial(vars[variable]))
-			continue
-		f["[variable]"] << vars[variable]
-	return
+		loading = get_saved_vars()
+		found_vars["[type]"] = loading
+
+	for(var/ind in 1 to loading.len)
+		var/variable = loading[ind]
+		if(f.dir.Find("[variable]"))
+			try
+				f["[variable]"] >> vars[variable]
+			catch
 
 /datum/Read(savefile/f)
-	var/list/loading
-	if(all_loaded)
-		all_loaded += src
-	if(found_vars.Find("[type]"))
-		loading = found_vars["[type]"]
-	else
-		loading = get_saved_vars()
-		found_vars["[type]"] = loading
-	for(var/ind in 1 to loading.len)
-		var/variable = loading[ind]
-		if(f.dir.Find("[variable]"))
-			f["[variable]"] >> vars[variable]
-
+	StandardRead(f)
+/atom/movable/Read(savefile/f)
+	contents = list()
+	StandardRead(f)
+/obj/item/weapon/storage/Read(savefile/f)
+	for(var/atom/movable/am in contents)
+		am.loc = null
+	startswith = list()
+	StandardRead(f)
 /turf/Read(savefile/f)
-	var/list/loading
-	if(all_loaded)
-		all_loaded += src
-	if(found_vars.Find("[type]"))
-		loading = found_vars["[type]"]
-	else
-		loading = get_saved_vars()
-		found_vars["[type]"] = loading
-	for(var/ind in 1 to loading.len)
-		var/variable = loading[ind]
-		if(f.dir.Find("[variable]"))
-			f["[variable]"] >> vars[variable]
-	var/area/A
-	f["area"] >> A
-	A.contents.Add(src)
+	StandardRead(f)
 
 /area/Read(savefile/f)
-	var/list/loading
-	if(all_loaded)
-		all_loaded += src
-	if(found_vars.Find("[type]"))
-		loading = found_vars["[type]"]
-	else
-		loading = get_saved_vars()
-		found_vars["[type]"] = loading
-	for(var/ind in 1 to loading.len)
-		var/variable = loading[ind]
-		if(f.dir.Find("[variable]"))
-			f["[variable]"] >> vars[variable]
-
-var/global/list/found_vars = list()
-var/global/list/all_loaded = list()
-
-/proc/Save_World()
-	var/starttime = REALTIMEOFDAY
-	fdel("map_saves/game.sav")
-	var/savefile/f = new("map_saves/game.sav")
-	found_vars = list(80000)
-	var/list/L = new()
-	for(var/z in 1 to 3)
-		for(var/x in 1 to world.maxx)
-			for(var/y in 1 to world.maxy)
-				var/turf/T = locate(x,y,z)
-				if(!T || (T.type == /turf/space && (!T.contents || !T.contents.len) && istype(T.loc, /area/space)))
-					continue
-				L.Add(T)
-	f["Station1"] << L
-
-	world << "Saving Completed in [(REALTIMEOFDAY - starttime)/10] seconds!"
-	world << "Saving Complete"
-	return 1
-
+	return 0
+	
 /proc/Save_Chunk(var/xi, var/yi, var/zi, var/savefile/f)
 	var/z = zi
 	xi = (xi - (xi % 20) + 1)
 	yi = (yi - (yi % 20) + 1)
-	f.cd = "/[z]/Chunk|[yi]|[xi]"
+	var/list/lis = list()
 	for(var/y in yi to yi + 20)
 		for(var/x in xi to xi + 20)
 			var/turf/T = locate(x,y,z)
 			if(!T || (T.type == /turf/space && (!T.contents || !T.contents.len)))
 				continue
-			f["[x]-[y]"] << T
-			f["[x]-[y]-A"] << T.loc
-
-
-/proc/Load_World()
-
-	var/savefile/f = new("map_saves/game.sav")
-
+			lis |= T
+	f << lis
+/proc/Save_World()
+	areas_to_save = list()
+	zones_to_save = list()
 	var/starttime = REALTIMEOFDAY
-
-	all_loaded = list()
+	fdel("map_saves/game.sav")
+	var/savefile/f = new("map_saves/game.sav")
 	found_vars = list()
-
-	Load_List(f)
-	Load_Initialize()
-
-	world << "Loading Completed in [(REALTIMEOFDAY - starttime)/10] seconds!"
-	world << "Loading Complete"
-
+	for(var/z in 1 to 11)
+		f.cd = "/map/[z]"
+		for(var/x in 1 to world.maxx step 20)
+			for(var/y in 1 to world.maxy step 20)
+				Save_Chunk(x,y,z, f)
+				CHECK_TICK
+	f.cd = "/extras"
+	var/list/formatted_areas = list()
+	for(var/area/A in areas_to_save)
+		if(istype(A, /area/space)) continue
+		var/datum/area_holder/holder = new()
+		holder.area_type = A.type
+		holder.name = A.name
+		holder.turfs = A.get_turf_coords()
+		formatted_areas += holder
+	var/list/zones = list()
+	for(var/zone/Z in zones_to_save)
+		Z.turf_coords = Z.get_turf_coords()
+		zones |= Z
+	f["zones"] << zones
+	f["areas"] << formatted_areas
+	f["turbolifts"] << turbolifts
+	f["records"] << GLOB.all_crew_records
+	world << "Saving Completed in [(REALTIMEOFDAY - starttime)/10] seconds!"
+	world << "Saving Complete"
 	return 1
 
-/proc/Load_List(var/savefile/f)
-	var/list/L = new(80000)
-	f["Station1"] >> L
+/proc/Load_World()
+	var/starttime = REALTIMEOFDAY
+	if(!fexists("map_saves/game.sav")) return
+	var/savefile/f = new("map_saves/game.sav")
+	all_loaded = list()
+	found_vars = list()
+	var/v = null
+	f.cd = "/extras"
+	f["records"] >> GLOB.all_crew_records
+	var/list/areas
+	f["areas"] >> areas
+	for(var/datum/area_holder/holder in areas)
+		var/area/A = new holder.area_type
+		A.name = holder.name
+		var/list/turfs = list()
+		for(var/ind in 1 to holder.turfs.len)
+			var/list/coords = holder.turfs[ind]
+			var/turf/T = locate(text2num(coords[1]),text2num(coords[2]),text2num(coords[3]))
+			if(!T)
+				message_admins("No turf found for area load")
+			turfs |= T
+		A.contents.Add(turfs)
+	f.cd = "/"
+	for(var/z in 1 to 11)
+		f.cd = "/map/[z]"
+		while(!f.eof)
+			f >> v
+			CHECK_TICK
+		world << "Loading.. [((1/(12-z))*100)]% Complete"
+	f.cd = "/extras"
+	f["turbolifts"] >> turbolifts
+	var/list/zones
+	f["zones"] >> zones
+	for(var/zone/Z in zones)
+		for(var/ind in 1 to Z.turf_coords.len)
+			var/list/coords = Z.turf_coords[ind]
+			var/turf/simulated/T = locate(text2num(coords[1]),text2num(coords[2]),text2num(coords[3]))
+			if(!T)
+				message_admins("No turf found for zone load")
+			T.zone = Z
+			Z.contents |= T
 
-/proc/Load_Initialize()
 	for(var/ind in 1 to all_loaded.len)
 		var/datum/dat = all_loaded[ind]
 		dat.after_load()
-		if(istype(dat,/atom/))
-			var/atom/A = dat
-			A.Initialize()
+	all_loaded = list()
 	SSmachines.makepowernets()
+	
+	world << "Loading Completed in [(REALTIMEOFDAY - starttime)/10] seconds!"
+	world << "Loading Complete"
+	return 1
 
 /proc/Load_Chunk(var/xi, var/yi, var/zi, var/savefile/f)
 	var/z = zi
@@ -256,10 +276,15 @@ var/global/list/all_loaded = list()
 		for(var/x in xi to xi + 20)
 			var/turf/T = locate(x,y,z)
 			f["[x]-[y]"] >> T
-			var/area/A
-			f["[x]-[y]-A"] >> A
-			if(A)
-				A.contents.Add(T)
+
+/proc/Load_Initialize()
+	for(var/ind in 1 to all_loaded.len)
+		var/datum/dat = all_loaded[ind]
+		dat.after_load()
+		if(istype(dat,/atom/))
+			var/atom/A = dat
+			A.Initialize()
+	SSmachines.makepowernets()
 
 /datum/proc/remove_saved(var/ind)
 	var/A = src.type
@@ -269,7 +294,6 @@ var/global/list/all_loaded = list()
 		savedvarparams = ""
 	var/list/saved_vars = params2list(savedvarparams)
 	if(saved_vars.len < ind)
-		message_admins("remove_saved saved_vars less than ind [src]")
 		return
 	saved_vars.Cut(ind, ind+1)
 	savedvarparams = list2params(saved_vars)
@@ -288,7 +312,6 @@ var/global/list/all_loaded = list()
 	var/B = replacetext("[A]", "/", "-")
 	var/C = B
 	var/savedvarparams = file2text("saved_vars/[B].txt")
-	message_admins("savedvarparams: | [savedvarparams] | saved_vars/[B].txt")
 	if(!savedvarparams)
 		savedvarparams = ""
 	var/list/savedvars = params2list(savedvarparams)
@@ -305,7 +328,6 @@ var/global/list/all_loaded = list()
 			for(var/xa in subtypes)
 				subtypes_text += "-[xa]"
 			var/savedvarparamss = file2text("saved_vars/[subtypes_text]-[x].txt")
-			message_admins("savedvarparamss: [savedvarparamss] dir: saved_vars/[subtypes_text]-[x].txt")
 			var/list/saved_vars = params2list(savedvarparamss)
 			if(saved_vars && saved_vars.len)
 				found_vars |= saved_vars
@@ -374,13 +396,11 @@ var/global/list/all_loaded = list()
 			for(var/xa in subtypes)
 				subtypes_text += "-[xa]"
 			var/savedvarparams = file2text("saved_vars/[subtypes_text]-[x].txt")
-			message_admins("savedvarparams: [savedvarparams] dir: saved_vars/[subtypes_text]-[x].txt")
 			var/list/saved_vars = params2list(savedvarparams)
 			if(saved_vars && saved_vars.len)
 				found_vars |= saved_vars
 			subtypes += x
 	var/savedvarparams = file2text("saved_vars/[C].txt")
-	message_admins("savedvarparams: [savedvarparams] saved_vars/[C].txt")
 	if(!savedvarparams)
 		savedvarparams = ""
 	var/list/saved_vars = params2list(savedvarparams)
@@ -392,7 +412,7 @@ var/global/list/all_loaded = list()
 	var/ind = 0
 	for(var/x in saved_vars)
 		ind++
-		dat += "[x] <a href='?_src_=savevars;Remove=[ind];Vars=\ref[src]'>(Remove)</a><br>"
+		dat += "[x] <a href='?_src_=vars;Remove_Var=[ind];Varsx=\ref[src]'>(Remove)</a><br>"
 	dat += "<hr><br>"
-	dat += "<a href='?_src_=savevars;Vars=\ref[src];Add=1'>(Add new var)</a>"
+	dat += "<a href='?_src_=vars;Varsx=\ref[src];Add_Var=1'>(Add new var)</a>"
 	M << browse(dat, "window=roundstats;size=500x600")

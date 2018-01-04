@@ -239,6 +239,7 @@ var/global/datum/controller/occupations/job_master
  *  This proc must not have any side effect besides of modifying "assigned_role".
  **/
 	proc/DivideOccupations()
+		/**
 		//Setup new player list and get the jobs list
 		Debug("Running DO")
 		SetupOccupations()
@@ -346,6 +347,7 @@ var/global/datum/controller/occupations/job_master
 				player.ready = 0
 				player.new_player_panel_proc()
 				unassigned -= player
+		**/
 		return 1
 
 
@@ -414,7 +416,11 @@ var/global/datum/controller/occupations/job_master
 				H.forceMove(S.loc)
 			else
 				var/datum/spawnpoint/spawnpoint = get_spawnpoint_for(H.client, rank)
-				H.forceMove(pick(spawnpoint.turfs))
+				if(spawnpoint.turfs.len)
+					H.forceMove(pick(spawnpoint.turfs))
+				else
+					if(GLOB.cryopods.len)
+						H.forceMove(pick(GLOB.cryopods))
 
 			// Moving wheelchair if they have one
 			if(H.buckled && istype(H.buckled, /obj/structure/bed/chair/wheelchair))
